@@ -4,7 +4,7 @@
 <meta http-equiv="x-ua-compatible" content="IE=edge" />
 <meta charset="utf-8" />
 <title>清阅 Markdown</title>
-<HTA:APPLICATION ID="QingYueMarkdown" APPLICATIONNAME="清阅 Markdown" BORDER="thin" BORDERSTYLE="normal" CAPTION="yes" SHOWINTASKBAR="yes" SINGLEINSTANCE="yes" SYSMENU="yes" WINDOWSTATE="normal" />
+<HTA:APPLICATION ID="QingYueMarkdown" APPLICATIONNAME="清阅 Markdown" BORDER="thin" BORDERSTYLE="normal" CAPTION="yes" SHOWINTASKBAR="yes" SINGLEINSTANCE="no" SYSMENU="yes" WINDOWSTATE="normal" />
 <style>
 :root{--bg:#f3f5f7;--surface:#fff;--ink:#20262e;--muted:#7c8794;--line:#e5e9ee;--accent:#3478f6;--quote:#eaf2ff;--code:#f4f6f8;--shadow:0 16px 40px rgba(29,43,64,.08)}
 *{box-sizing:border-box}html,body{height:100%;margin:0}body{font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--bg);overflow:hidden}
@@ -19,18 +19,44 @@ article{font-family:Georgia,"Times New Roman","Microsoft YaHei",serif;font-size:
 </style>
 </head>
 <body>
-<div class="app"><header class="topbar"><div class="brand"><div class="brandmark">M</div><span>清阅</span></div><div id="filename" class="filename">未打开文档</div><div class="actions"><button class="iconbtn" id="searchBtn" title="搜索（Ctrl+F）">⌕</button><button class="iconbtn" id="themeBtn" title="切换主题">◐</button><button class="iconbtn" id="openBtn" title="打开文件">＋</button></div></header><main class="main"><aside class="sidebar"><div class="side-label">目录</div><nav id="toc" class="toc"></nav></aside><section class="reading"><div id="paper" class="paper"><div class="empty">双击 Markdown 文件即可开始阅读</div></div></section></main><div id="status" class="status"></div></div>
+<div class="app"><header class="topbar"><div class="brand"><div class="brandmark">M</div><span>清阅</span></div><div id="filename" class="filename">未打开文档</div><div class="actions"><button class="iconbtn" id="searchBtn" title="搜索（Ctrl+F）">⌕</button><button class="iconbtn" id="themeBtn" title="切换主题">◐</button><button class="iconbtn" id="openBtn" title="打开 Markdown 文件（Ctrl+O）">＋</button><input id="fileInput" type="file" accept=".md,.markdown,text/markdown" style="display:none" /></div></header><main class="main"><aside class="sidebar"><div class="side-label">目录</div><nav id="toc" class="toc"></nav></aside><section class="reading"><div id="paper" class="paper"><div class="empty">点击右上角“＋”选择 Markdown 文件<br><small>也可以直接拖入文件，或按 Ctrl+O</small></div></div></section></main><div id="status" class="status"></div></div>
 <script>
 (function(){
- var filePath=getQueryFile(), fileName=filePath?filePath.split(/\\|\//).pop():'';
- var paper=document.getElementById('paper'), toc=document.getElementById('toc'), filename=document.getElementById('filename'), status=document.getElementById('status');
+ var filePath=getQueryFile(),openRequestId=0;
+ var paper=document.getElementById('paper'), toc=document.getElementById('toc'), filename=document.getElementById('filename'), status=document.getElementById('status'), fileInput=document.getElementById('fileInput');
  document.getElementById('themeBtn').onclick=function(){document.body.classList.toggle('dark');try{localStorage.qyDark=document.body.classList.contains('dark')?'1':'0'}catch(e){}};
  try{if(localStorage.qyDark==='1')document.body.classList.add('dark')}catch(e){}
- document.getElementById('searchBtn').onclick=search;document.onkeydown=function(e){if((e.ctrlKey||e.metaKey)&&e.keyCode===70){e.preventDefault();search()}};
- document.getElementById('openBtn').onclick=function(){try{new ActiveXObject('Shell.Application').BrowseForFolder(0,'选择 Markdown 文件所在文件夹',0)}catch(e){alert('请直接双击 .md 文件打开。')}};
+ document.getElementById('searchBtn').onclick=search;
+ document.onkeydown=function(e){if((e.ctrlKey||e.metaKey)&&e.keyCode===70){e.preventDefault();search()}else if((e.ctrlKey||e.metaKey)&&e.keyCode===79){e.preventDefault();openFilePicker()}};
+ document.getElementById('openBtn').onclick=openFilePicker;
+ fileInput.onchange=function(){var file=fileInput.files&&fileInput.files.length?fileInput.files[0]:null,path=inputFilePath();if(file||path)openSelectedFile(file,path);fileInput.value=''};
+ document.ondragover=function(e){e.preventDefault();return false};
+ document.ondrop=function(e){e.preventDefault();var files=e.dataTransfer&&e.dataTransfer.files,file=files&&files.length?files[0]:null;var path=dropFilePath(e);if(file||path)openSelectedFile(file,path);else alert('无法读取拖入文件，请点击右上角“＋”选择 Markdown 文件。');return false};
  if(filePath)load(filePath);
+ function openFilePicker(){try{fileInput.click()}catch(e){alert('无法打开文件选择器，请把 Markdown 文件拖到“清阅 Markdown.exe”图标上打开。')}}
+ function inputFilePath(){var path='';try{if(fileInput.files&&fileInput.files.length)path=fileInput.files[0].path||''}catch(e){}if(!path)path=fileInput.value||'';return /^([a-z]:)?\\fakepath\\/i.test(path)?'':path}
+ function openSelectedFile(file,path){
+   if(path){load(path);return}
+   if(!file||typeof FileReader==='undefined'){alert('无法读取文件，请把 Markdown 文件拖到“清阅 Markdown.exe”图标上打开。');return}
+   var requestId=++openRequestId,reader=new FileReader();
+   reader.onload=function(){
+     if(requestId!==openRequestId)return;
+     var text=String(reader.result);
+     if(text.indexOf('\ufffd')>=0){
+       var fallback=new FileReader();
+       fallback.onload=function(){if(requestId===openRequestId)renderDocument(String(fallback.result),file.name)};
+       fallback.onerror=function(){if(requestId===openRequestId)readFailed(file.name)};
+       fallback.readAsText(file,'gb18030');
+     }else renderDocument(text,file.name);
+   };
+   reader.onerror=function(){if(requestId===openRequestId)readFailed(file.name)};
+   try{reader.readAsText(file,'utf-8')}catch(e){readFailed(file.name)}
+ }
+ function dropFilePath(e){var path='';try{var files=e.dataTransfer&&e.dataTransfer.files;if(files&&files.length)path=files[0].path||''}catch(err){}if(!path){try{var uri=(e.dataTransfer.getData('text/uri-list')||'').split(/\r?\n/)[0];if(/^file:\/\//i.test(uri)){path=decodeURIComponent(uri.replace(/^file:\/\//i,''));if(/^\/[a-z]:/i.test(path))path=path.substr(1);path=path.replace(/\//g,'\\')}}catch(err2){}}return path}
  function getQueryFile(){var q=location.search.replace(/^\?/,'');if(!q)return '';try{return decodeURIComponent(q)}catch(e){return q}}
- function load(path){filename.textContent=fileName||path;try{var text=readText(path);render(text,path);status.textContent=text.length.toLocaleString()+' 字符'}catch(e){paper.innerHTML='<div class="empty">无法读取此文件<br><small>'+escapeHtml(path)+'</small></div>'}}
+ function load(path){openRequestId++;try{renderDocument(readText(path),path)}catch(e){readFailed(path)}}
+ function renderDocument(text,path){render(text.replace(/^\ufeff/,''),path);filename.textContent=path.split(/\\|\//).pop()||path;filename.title=path;status.textContent=text.length.toLocaleString()+' 字符'}
+ function readFailed(path){status.textContent='无法读取：'+path;alert('无法读取文件：'+path+'\n请确认文件已下载到本地，且清阅有权限读取。')}
  function readText(path){var bin=new ActiveXObject('ADODB.Stream');bin.Type=1;bin.Open();bin.LoadFromFile(path);var bytes=bin.Read();bin.Close();var a=new VBArray(bytes).toArray(),b0=a.length>0?a[0]:0,b1=a.length>1?a[1]:0,b2=a.length>2?a[2]:0;if(b0===255&&b1===254)return decodeBytes(path,'unicode');if(b0===254&&b1===255)return decodeBytes(path,'unicodeFFFE');if(b0===239&&b1===187&&b2===191)return decodeBytes(path,'utf-8');var utf=decodeBytes(path,'utf-8');if(utf.indexOf('\ufffd')>=0)return decodeBytes(path,'gb18030');return utf}
  function decodeBytes(path,charset){var s=new ActiveXObject('ADODB.Stream');s.Type=1;s.Open();s.LoadFromFile(path);s.Position=0;s.Type=2;s.Charset=charset;var text=s.ReadText();s.Close();return text.replace(/^\ufeff/,'')}
  function render(md,path){var html=markdown(md,path);paper.innerHTML='<article>'+html+'</article>';buildToc()}

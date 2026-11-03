@@ -3,3 +3,5 @@
 *.log
 Thumbs.db
 .DS_Store
+.work/
+dist/
